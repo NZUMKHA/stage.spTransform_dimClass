@@ -1,7 +1,7 @@
 USE [KCDW]
 GO
 
-/****** Object:  StoredProcedure [stage].[spTransform_dimClass]    Script Date: 6/08/2025 8:53:42 AM ******/
+/****** Object:  StoredProcedure [stage].[spTransform_dimClass]    Script Date: 6/08/2025 10:25:59 AM ******/
 SET ANSI_NULLS ON
 GO
 
@@ -13,7 +13,8 @@ GO
 
 
 
-CREATE PROCEDURE [stage].[spTransform_dimClass] @DETL_ProcessLogID INT, @DETL_PackageLogID INT, @DETL_DataFlowLogID INT, @DETL_LastTouchedBY VARCHAR(100)
+
+ALTER PROCEDURE [stage].[spTransform_dimClass] @DETL_ProcessLogID INT, @DETL_PackageLogID INT, @DETL_DataFlowLogID INT, @DETL_LastTouchedBY VARCHAR(100)
 AS
 
 
@@ -109,7 +110,7 @@ DECLARE @ErrorMsg VARCHAR(MAX)
 									  WHEN (sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN') OR SyllabusCode IS NOT NULL THEN 'CIE'
 									  WHEN (sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN') OR SyllabusCode IS NOT NULL THEN 'CIE'
 									  WHEN ((sc.ClassDescription LIKE 'AS %' OR sc.ClassDescription LIKE 'A Level %' OR sc.ClassDescription LIKE '% - AS Level%' OR sc.ClassDescription LIKE '% - A Level%' OR sc.ClassDescription LIKE '% - towards CIE AS Level%') AND sc.FileType = 'LEARN') THEN 'CIE'
-									  WHEN  ( sc.ClassDescription LIKE 'NCEA L1%' OR sc.ClassDescription LIKE 'NCEA L2%' OR sc.ClassDescription LIKE 'NCEA L3%')  AND sc.FileType = 'LEARN' THEN 'NCEA'
+									  WHEN ((sc.ClassDescription LIKE 'NCEA L1%' OR sc.ClassDescription LIKE 'NCEA L2%' OR sc.ClassDescription LIKE 'NCEA L3%' OR sc.ClassDescription LIKE '% - NCEA Level 1%' OR sc.ClassDescription LIKE '% - NCEA Level 2%' OR sc.ClassDescription LIKE '% - NCEA Level 3%' OR sc.ClassDescription LIKE '% - towards NCEA Level %') AND sc.FileType = 'LEARN') THEN 'NCEA'
 									  WHEN ISNULL( ClassNormalYearLevel, CASE
 																			WHEN CHARINDEX('.', sc.CLASSCODE) > 0 THEN TRY_CONVERT(INT, LEFT(sc.Classcode, (CHARINDEX('.', sc.Classcode)-1)))
 																			ELSE 0
@@ -422,6 +423,9 @@ DECLARE @ErrorMsg VARCHAR(MAX)
 
 
 GO
+
+
+
 
 
 
