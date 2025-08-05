@@ -1,405 +1,427 @@
-  
-  
-  
-CREATE PROCEDURE [stage].[spTransform_dimClass] @DETL_ProcessLogID INT, @DETL_PackageLogID INT, @DETL_DataFlowLogID INT, @DETL_LastTouchedBY VARCHAR(100)  
-AS  
-  
-  
-/**********************************************************************************************************************  
-  
-Author: Tim Foote  
-Date: 12/04/2017  
-Version: 1.0  
-Description: This proc does a load from extract to transform, applying some business logic.  
-  
-Test Execution:  
-exec [stage].[spTransform_dimClass] 1,1,1,'Test'  
-  
-Changes:   
-Author: m.kannangara  
-Date: 20/04/2018  
-Version: 1.1  
-Description: Added BoardStudiesType into stage.Transform_dimClass as a new column  
-  
-Changes:   
-Author: m.kannangara  
-Date: 27/06/2018  
-Version: 1.2  
-Description: Added SubjectClass into stage.Transform_dimClass as a new column  
-  
-***********************************************************************************************************************/  
-  
-SET NOCOUNT ON  
-  
-DECLARE @ErrorMsg VARCHAR(MAX)  
-  
- BEGIN TRY  
-  
-   --  Temp tables  
-  
-  CREATE TABLE #Transform_dimClass ( FileYear INT, FileSemester INT, ClassCode VARCHAR(20) NULL, FileType VARCHAR(5) NULL, [Subject] VARCHAR(100) NULL, ClassNormalYearLevel SMALLINT NULL,  
-           ClassSubject VARCHAR(255) NULL, Department VARCHAR(50) NOT NULL, Pathway VARCHAR(50) NOT NULL,  
-           QualificationType VARCHAR(50) NOT NULL, CIESyllabusCode VARCHAR(50) NULL, RankingClassCode INT NULL, SourceName VARCHAR(255), BoardStudiesType VARCHAR(20), SubjectClass VARCHAR(255) NULL, AssessmentCode VARCHAR(15))  --Added BoardStudiesType by
- m.kannangara on 20-April-2018 -- Added SubjectClass by m.kannangara on 27-June-2018 -- Added AssessmentCode by m.kannangara on 18-Sep-2018  
-   
-  --  Clear stage table  
-  
-  TRUNCATE TABLE stage.Transform_dimClass  
-            
-  --  Add supporting indexes  
-  
-  
-  
-  --  Transform Class (Current Students)  
-  
-  INSERT  INTO #Transform_dimClass (  FileYear, FileSemester, ClassCode, [Subject], FileType, ClassNormalYearLevel, ClassSubject,   
-           Department, Pathway, QualificationType, CIESyllabusCode, RankingClassCode, SourceName, BoardStudiesType, SubjectClass, AssessmentCode) --Added BoardStudiesType by m.kannangara on 20-April-2018 -- Added SubjectClass by m.kannangara on 27-June-20
-18 -- Added AssessmentCode by m.kannangara on 18-Sep-2018  
-  SELECT DISTINCT sc.FileYear, sc.FileSemester, sc.ClassCode, sc.ClassDescription AS 'Subject', sc.FileType,   
-       ClassNormalYearLevel = CASE  
-            WHEN ClassNormalYearLevel IS NULL AND ISNUMERIC(REPLACE(LEFT(sc.ClassCode, 2),'.','') )  = 1 THEN REPLACE(LEFT(sc.ClassCode, 2),'.','')   
-            ELSE ClassNormalYearLevel   
-           END ,   
-      sc.ClassCode + ' (' + sc.ClassDescription  + ')' AS 'ClassSubject',  
-      Department = CASE   
-          WHEN ( sc.ClassCode LIKE '12.ELI.AS_' OR sc.ClassCode LIKE '%.ENG.%' OR la.[Description] = 'English Language' OR sc.ClassDescription IN ( 'AS English Language' )) AND sc.FileType = 'LEARN' THEN 'English'  
-          WHEN ( sc.ClassCode LIKE '%.PHY.%' OR sc.ClassDescription  IN ( 'AS Physics','AS Physics (2nd year)', 'AS Physics (2 year)', 'A Level Physics', 'AS Physics  (2nd year)') ) AND sc.FileType = 'LEARN'  THEN  'Physics'  
-          WHEN ( sc.ClassCode LIKE '%.CHE.%' OR sc.ClassDescription  IN ( 'AS Chemistry (2nd year)', 'AS Chemistry (2 year)')) AND sc.FileType = 'LEARN'  THEN 'Chemistry'  
-          WHEN ( sc.ClassCode LIKE '%.ACC.%' OR  sc.ClassCode LIKE '%.BUS.%' OR  sc.ClassCode LIKE '%.FIN_' OR la.[Description] = 'Business Studies') AND sc.FileType = 'LEARN' THEN  'Business Studies'  
-          WHEN ( sc.ClassCode LIKE '%.ECO%.%' OR sc.ClassCode LIKE '%.ECO_' ) AND sc.FileType = 'LEARN' THEN  'Economics'  
-          WHEN ( sc.ClassCode LIKE '%.SCI.%' OR la.[Description] = 'Science' OR sc.ClassDescription = 'Science' ) AND sc.FileType = 'LEARN' THEN  'Science'  
-          WHEN ( sc.ClassCode LIKE '%.MAT%.%' OR  sc.ClassCode LIKE '%.MAC.%' OR  sc.ClassCode LIKE '%.MAS.%' OR sc.ClassCode LIKE '%.MAT_' OR la.[Description] = 'Mathematics' ) AND sc.FileType = 'LEARN' THEN  'Mathematics'  
-          WHEN ( sc.ClassCode LIKE '%.AEN.%' or sc.ClassCode LIKE '%.FDE.%' or sc.ClassCode LIKE '%.ICT.%' OR sc.ClassCode LIKE '%.PDE%.%'   
-            OR  sc.ClassCode LIKE '%.ADE_.%' OR sc.ClassCode LIKE '%.DEI.%' OR  sc.ClassCode LIKE '%.DTE.%' OR la.[Description] = 'Technology' or sc.ClassDescription IN ( 'NCEA L3 Technology', 'Technology') ) AND sc.FileType = 'LEARN' THEN 'Technology'  
-          WHEN ( sc.ClassCode LIKE '%.GEO.%' OR sc.ClassDescription = 'NCEA L2 Geography' ) AND sc.FileType = 'LEARN'  THEN  'Geography'  
-          WHEN sc.ClassCode LIKE '%.DRM.%' AND sc.FileType = 'LEARN'  THEN  'Drama'  
-          WHEN sc.ClassCode = '10.CHI' OR sc.ClassCode LIKE '%.JAP' OR sc.ClassCode LIKE '%.LAT.%' OR sc.ClassCode LIKE '%.LAT_' OR sc.ClassCode LIKE '10.FRE_' OR sc.ClassCode LIKE '%.FRE.%' OR sc.ClassCode LIKE '%.FRE.%' OR sc.ClassCode LIKE '%.MAO.%' OR
- sc.ClassCode LIKE '%.SPN.%' AND sc.FileType = 'LEARN' THEN  'Languages'  
-          WHEN sc.ClassDescription  IN ( 'AS Mandarin', 'IGCSE Chinese','Chinese Special', 'AS Spanish', 'NCEA L3 Chinese', 'Extended French','Extended Latin','Extended Te Reo Maori','Extended Spanish','Extended French (Term 2 Exam)', 'AS French', 'NCEA L
-evel 2 Japanese', 'NCEA L1 Chinese', 'NCEA Level 3 German','IGCSE Japanese', 'IGCSE French', 'IGCSE Mandarin', 'NCEA L1 Latin', 'IGCSE Spanish', 'AS Latin', 'French', 'IGCSE Latin', 'Latin', 'Spanish', 'Te Reo Maori', 'Mandarin', 'Maori Studies', 'Te Ao M
-aori', 'NCEA L2 Te Reo Rangatira') AND sc.FileType = 'LEARN' THEN  'Languages'  
-          WHEN ( sc.ClassCode LIKE '%.GRA.%' OR sc.ClassCode LIKE '%.DES.%' OR  sc.ClassCode LIKE '%.PAI.%' OR  sc.ClassCode LIKE '%.PHO.%' OR sc.ClassCode LIKE '%.GRA_'  
-            OR sc.ClassCode LIKE '%.ART.%' OR  sc.ClassCode LIKE '%.ART[a-z]%' OR  sc.ClassCode LIKE '%(ART)%'  OR sc.ClassDescription IN ('NCEA L2 Art', 'Graphics','ART','NCEA L3 Sculpture', 'NCEA L3 Painting') )   
-            AND sc.FileType = 'LEARN' THEN  'Visual Art and Design'  
-          WHEN ( sc.ClassCode LIKE '%.BIO.%' OR sc.ClassCode LIKE '%.BIO_.%'  OR sc.ClassCode = '13 BIO.N') AND sc.FileType = 'LEARN' THEN 'Biology'  
-          WHEN sc.ClassCode LIKE '%.MES.%' AND sc.FileType = 'LEARN' THEN 'Media Studies'  
-          WHEN ( sc.ClassCode LIKE '%.MUS.%' OR sc.ClassDescription  = 'Music')  AND sc.FileType = 'LEARN' THEN 'Music'  
-          WHEN ( sc.ClassCode LIKE '%.POS.%' OR sc.ClassCode LIKE '%.POSe%'  OR la.[Description] = 'Positive Education' ) AND sc.FileType = 'LEARN' THEN 'Positive Education'   
-          WHEN sc.ClassCode LIKE '%.PED%' AND sc.FileType = 'LEARN' THEN 'Physical Education'  
-          WHEN sc.ClassCode LIKE '%.CLS.%'AND sc.FileType = 'LEARN' THEN 'Classical Studies'  
-          WHEN ( sc.ClassCode LIKE '%.COM.%' OR sc.ClassCode LIKE '%.DLIT.%' OR la.[Description] = 'Computer Studies' OR sc.ClassDescription IN (  'IGCSE Information Technology' )) AND sc.FileType = 'LEARN' THEN 'Computer Science'  
-          WHEN ( sc.ClassCode LIKE '%.HIS.%' OR la.[Description] = 'History' or sc.ClassDescription IN ( 'AS New Zealand History') ) AND sc.FileType = 'LEARN'  THEN 'History'  
-          WHEN sc.ClassCode LIKE '%.ADE.%' AND sc.FileType = 'LEARN' THEN 'Architectural Design'  
-          WHEN sc.ClassCode LIKE '%.HOA.%' OR sc.ClassDescription IN ( 'AS Art History','NCEA L3 Art History') AND sc.FileType = 'LEARN' THEN 'Art History'  
-          WHEN ( sc.ClassCode LIKE '%.MUS.%' OR sc.ClassDescription IN ( 'AS Music')) AND sc.FileType = 'LEARN' THEN 'Music'  
-          WHEN ( sc.ClassCode LIKE '%.SOS.%' OR la.[Description] = 'Social Studies') AND sc.FileType = 'LEARN' THEN 'Social Studies'  
-          WHEN ( sc.ClassCode LIKE '%.LSP%.%' OR sc.ClassCode LIKE '%.LSP_'  OR sc.ClassCode LIKE '%.LSP%' ) AND sc.FileType = 'LEARN' THEN 'Learning Support'  
-          WHEN sc.ClassCode LIKE 'FORM_%' THEN 'Form Class'  
-  
-          ELSE 'Unknown'  
-           END,   
-      Pathway = CASE   
-           WHEN (sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN') OR SyllabusCode IS NOT NULL THEN 'CIE'  
-           WHEN (sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN') OR SyllabusCode IS NOT NULL THEN 'CIE'  
-           WHEN (sc.ClassDescription LIKE 'AS %'  OR  sc.ClassDescription LIKE 'A Level %' AND sc.FileType = 'LEARN') THEN 'CIE'  
-           WHEN  ( sc.ClassDescription LIKE 'NCEA L1%' OR sc.ClassDescription LIKE 'NCEA L2%' OR sc.ClassDescription LIKE 'NCEA L3%')  AND sc.FileType = 'LEARN' THEN 'NCEA'  
-           WHEN ISNULL( ClassNormalYearLevel, CASE  
-                   WHEN CHARINDEX('.', sc.CLASSCODE) > 0 THEN TRY_CONVERT(INT, LEFT(sc.Classcode, (CHARINDEX('.', sc.Classcode)-1)))  
-                   ELSE 0  
-                   END )   IN ( 9, 10 )  AND sc.FileType = 'LEARN' THEN 'Junior'  
-           WHEN ClassNormalYearLevel  IN ( 9, 10, 0 ) THEN 'Junior'  
-           ELSE 'Other'   
-         END,   
-      QualificationType = CASE   
-            WHEN sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN' THEN 'IGCSE'  
-            WHEN sc.ClassDescription LIKE 'AS %' AND sc.FileType = 'LEARN' THEN 'AS Level'  
-            WHEN sc.ClassDescription LIKE 'A Level %' AND sc.FileType = 'LEARN' THEN 'A Level'  
-            WHEN sc.ClassDescription LIKE 'Scholarship %' THEN 'Scholarship'  
-            WHEN sc.ClassDescription LIKE 'NCEA L1%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 1'  
-            WHEN sc.ClassDescription LIKE 'NCEA L2%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 2'  
-            WHEN sc.ClassDescription LIKE 'NCEA L3%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 3'  
-            WHEN sc.ClassCode LIKE '12.LAT.AP%' AND sc.FileType = 'LEARN' THEN 'AS Level'  
-            WHEN sc.ClassCode LIKE '13.LAT.AP%' AND sc.FileType = 'LEARN' THEN 'A Level'  
-            ELSE 'Unknown'  
-           END,  
-      SyllabusCode AS CIESyllabusCode, RANK() OVER (PARTITION BY sc.ClassCode ORDER BY sc.Fileyear DESC, sc.fileSemester DESC) AS RankingClassCode, 'Current Student Classes' AS SourceName  
-      ,BoardStudiesType --Added by m.kannangara on 20-April-2018  
-      ,sc.ClassDescription + ' (' + sc.ClassCode + ')' AS 'SubjectClass' --Added by m.kannangara on 27-June-2018  
-      ,sc.AssessmentCode -- Added by m.kannangara on 18-Sep-2018  
-  
-  
-  FROM stage.Extract_Synergetic_uvStudentClassesAll sc LEFT OUTER JOIN stage.Extract_Synergetic_LearningAreas la ON  la.LearningAreaCode = sc.ClassLearningAreaCode  
-                               AND la.FileType = sc.FileType  
-               LEFT OUTER JOIN stage.Extract_Synergetic_uSubjectClassesCIEAttributes cca ON sc.ClassCode = cca.ClassCode  
-                                  AND sc.FileYear = cca.FileYear AND cca.ClassCampus = ''  
-  
-  --  Transform Class (Past Students)  
-  
-  INSERT  INTO #Transform_dimClass (  FileYear, FileSemester, ClassCode, [Subject], FileType, ClassNormalYearLevel, ClassSubject,   
-           Department, Pathway, QualificationType, CIESyllabusCode, RankingClassCode, SourceName, BoardStudiesType, SubjectClass, AssessmentCode)  --Added BoardStudiesType by m.kannangara on 20-April-2018 -- Added SubjectClass by m.kannangara on 27-June-2
-018 -- Added AssessmentCode by m.kannangara on 18-Sep-2018  
-  SELECT DISTINCT sc.FileYear, sc.FileSemester, sc.ClassCode, sc.ClassDescription AS 'Subject', sc.FileType,   
-       ClassNormalYearLevel = CASE  
-            WHEN ClassNormalYearLevel IS NULL AND ISNUMERIC(REPLACE(LEFT(sc.ClassCode, 2),'.','') )  = 1 THEN REPLACE(LEFT(sc.ClassCode, 2),'.','')   
-            ELSE ClassNormalYearLevel   
-           END ,   
-      sc.ClassCode + ' (' + sc.ClassDescription  + ')' AS 'ClassSubject',  
-      Department = CASE   
-          WHEN ( sc.ClassCode LIKE '12.ELI.AS_' OR sc.ClassCode LIKE '%.ENG.%' OR la.[Description] = 'English Language' OR sc.ClassDescription IN ( 'AS English Language' )) AND sc.FileType = 'LEARN' THEN 'English'  
-          WHEN ( sc.ClassCode LIKE '%.PHY.%' OR sc.ClassDescription IN ( 'AS Physics','AS Physics (2nd year)', 'AS Physics (2 year)', 'A Level Physics', 'AS Physics  (2nd year)') ) AND sc.FileType = 'LEARN'  THEN  'Physics'  
-          WHEN ( sc.ClassCode LIKE '%.CHE.%' OR sc.ClassDescription  IN ( 'AS Chemistry (2nd year)', 'AS Chemistry (2 year)')) AND sc.FileType = 'LEARN'  THEN 'Chemistry'  
-          WHEN ( sc.ClassCode LIKE '%.ACC.%' OR  sc.ClassCode LIKE '%.BUS.%' OR  sc.ClassCode LIKE '%.FIN_' OR la.[Description] = 'Business Studies') AND sc.FileType = 'LEARN' THEN  'Business Studies'  
-          WHEN ( sc.ClassCode LIKE '%.ECO%.%' OR sc.ClassCode LIKE '%.ECO_' ) AND sc.FileType = 'LEARN' THEN  'Economics'  
-          WHEN ( sc.ClassCode LIKE '%.SCI.%' OR la.[Description] = 'Science' OR sc.ClassDescription = 'Science' ) AND sc.FileType = 'LEARN' THEN  'Science'  
-          WHEN ( sc.ClassCode LIKE '%.MAT%.%' OR  sc.ClassCode LIKE '%.MAC.%' OR  sc.ClassCode LIKE '%.MAS.%' OR sc.ClassCode LIKE '%.MAT_' OR la.[Description] = 'Mathematics' ) AND sc.FileType = 'LEARN' THEN  'Mathematics'  
-          WHEN ( sc.ClassCode LIKE '%.AEN.%' or sc.ClassCode LIKE '%.FDE.%' or sc.ClassCode LIKE '%.ICT.%' OR sc.ClassCode LIKE '%.PDE%.%'   
-            OR  sc.ClassCode LIKE '%.ADE_.%' OR sc.ClassCode LIKE '%.DEI.%' OR  sc.ClassCode LIKE '%.DTE.%' OR la.[Description] = 'Technology' or sc.ClassDescription IN ( 'NCEA L3 Technology', 'Technology') ) AND sc.FileType = 'LEARN' THEN 'Technology'  
-          WHEN ( sc.ClassCode LIKE '%.GEO.%' OR sc.ClassDescription = 'NCEA L2 Geography' ) AND sc.FileType = 'LEARN'  THEN  'Geography'  
-          WHEN sc.ClassCode LIKE '%.DRM.%' AND sc.FileType = 'LEARN'  THEN  'Drama'  
-          WHEN sc.ClassCode = '10.CHI' OR sc.ClassCode LIKE '%.JAP' OR sc.ClassCode LIKE '%.LAT.%' OR sc.ClassCode LIKE '%.LAT_' OR sc.ClassCode LIKE '10.FRE_' OR sc.ClassCode LIKE '%.FRE.%' OR sc.ClassCode LIKE '%.FRE.%' OR sc.ClassCode LIKE '%.MAO.%' O
-R sc.ClassCode LIKE '%.SPN.%' AND sc.FileType = 'LEARN' THEN  'Languages'  
-          WHEN sc.ClassDescription  IN ( 'AS Mandarin', 'IGCSE Chinese','Chinese Special', 'AS Spanish', 'NCEA L3 Chinese', 'Extended French','Extended Latin','Extended Te Reo Maori','Extended Spanish','Extended French (Term 2 Exam)', 'AS French', 'NCEA L
-evel 2 Japanese', 'NCEA L1 Chinese', 'NCEA Level 3 German','IGCSE Japanese', 'IGCSE French', 'IGCSE Mandarin', 'NCEA L1 Latin', 'IGCSE Spanish', 'AS Latin', 'French', 'IGCSE Latin', 'Latin', 'Spanish', 'Te Reo Maori', 'Mandarin') AND sc.FileType = 'LEARN'
- THEN  'Languages'  
-          WHEN ( sc.ClassCode LIKE '%.GRA.%' OR sc.ClassCode LIKE '%.DES.%' OR  sc.ClassCode LIKE '%.PAI.%' OR  sc.ClassCode LIKE '%.PHO.%' OR sc.ClassCode LIKE '%.GRA_'  
-            OR sc.ClassCode LIKE '%.ART.%' OR  sc.ClassCode LIKE '%.ART[a-z]%' OR  sc.ClassCode LIKE '%(ART)%'  OR sc.ClassDescription IN ('NCEA L2 Art', 'Graphics','ART','NCEA L3 Sculpture', 'NCEA L3 Painting') )   
-            AND sc.FileType = 'LEARN' THEN  'Visual Art and Design'  
-          WHEN ( sc.ClassCode LIKE '%.BIO.%' OR sc.ClassCode LIKE '%.BIO_.%'  OR sc.ClassCode = '13 BIO.N') AND sc.FileType = 'LEARN' THEN 'Biology'  
-          WHEN sc.ClassCode LIKE '%.MES.%' AND sc.FileType = 'LEARN' THEN 'Media Studies'  
-          WHEN ( sc.ClassCode LIKE '%.MUS.%' OR sc.ClassDescription  = 'Music')  AND sc.FileType = 'LEARN' THEN 'Music'  
-          WHEN ( sc.ClassCode LIKE '%.POS.%'  OR la.[Description] = 'Positive Education' ) AND sc.FileType = 'LEARN' THEN 'Positive Education'   
-          WHEN sc.ClassCode LIKE '%.PED%' AND sc.FileType = 'LEARN' THEN 'Physical Education'  
-          WHEN sc.ClassCode LIKE '%.CLS.%'AND sc.FileType = 'LEARN' THEN 'Classical Studies'  
-          WHEN ( sc.ClassCode LIKE '%.COM.%' OR sc.ClassCode LIKE '%.DLIT.%' OR la.[Description] = 'Computer Studies' OR sc.ClassDescription IN (  'IGCSE Information Technology' )) AND sc.FileType = 'LEARN' THEN 'Computer Science'  
-          WHEN ( sc.ClassCode LIKE '%.HIS.%' OR la.[Description] = 'History' or sc.ClassDescription IN ( 'AS New Zealand History') ) AND sc.FileType = 'LEARN'  THEN 'History'  
-          WHEN sc.ClassCode LIKE '%.ADE.%' AND sc.FileType = 'LEARN' THEN 'Architectural Design'  
-          WHEN sc.ClassCode LIKE '%.HOA.%' OR sc.ClassDescription IN ( 'AS Art History','NCEA L3 Art History') AND sc.FileType = 'LEARN' THEN 'Art History'  
-          WHEN ( sc.ClassCode LIKE '%.MUS.%' OR sc.ClassDescription IN ( 'AS Music')) AND sc.FileType = 'LEARN' THEN 'Music'  
-          WHEN ( sc.ClassCode LIKE '%.SOS.%' OR la.[Description] = 'Social Studies') AND sc.FileType = 'LEARN' THEN 'Social Studies'  
-          WHEN ( sc.ClassCode LIKE '%.LSP%.%' OR sc.ClassCode LIKE '%.LSP_'  OR sc.ClassCode LIKE '%.LSP%' ) AND sc.FileType = 'LEARN' THEN 'Learning Support'  
-          WHEN sc.ClassCode LIKE 'FORM_%' THEN 'Form Class'  
-  
-          ELSE 'Unknown'  
-           END,   
-      Pathway = CASE   
-           WHEN (sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN') OR SyllabusCode IS NOT NULL THEN 'CIE'  
-           WHEN (sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN') OR SyllabusCode IS NOT NULL THEN 'CIE'  
-           WHEN (sc.ClassDescription LIKE 'AS %'  OR  sc.ClassDescription LIKE 'A Level %' AND sc.FileType = 'LEARN') THEN 'CIE'  
-           WHEN  ( sc.ClassDescription LIKE 'NCEA L1%' OR sc.ClassDescription LIKE 'NCEA L2%' OR sc.ClassDescription LIKE 'NCEA L3%')  AND sc.FileType = 'LEARN' THEN 'NCEA'  
-           WHEN ISNULL( ClassNormalYearLevel, CASE  
-                   WHEN CHARINDEX('.', sc.CLASSCODE) > 0 THEN TRY_CONVERT(INT, LEFT(sc.Classcode, (CHARINDEX('.', sc.Classcode)-1)))  
-                   ELSE 0  
-                   END )   IN ( 9, 10 )  AND sc.FileType = 'LEARN' THEN 'Junior'  
-           WHEN ClassNormalYearLevel  IN ( 9, 10, 0 ) THEN 'Junior'  
-           ELSE 'Other'   
-         END,   
-      QualificationType = CASE   
-            WHEN sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN' THEN 'IGCSE'  
-            WHEN sc.ClassDescription LIKE 'AS %' AND sc.FileType = 'LEARN' THEN 'AS Level'  
-            WHEN sc.ClassDescription LIKE 'A Level %' AND sc.FileType = 'LEARN' THEN 'A Level'  
-            WHEN sc.ClassDescription LIKE 'Scholarship %' THEN 'Scholarship'  
-            WHEN sc.ClassDescription LIKE 'NCEA L1%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 1'  
-            WHEN sc.ClassDescription LIKE 'NCEA L2%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 2'  
-            WHEN sc.ClassDescription LIKE 'NCEA L3%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 3'  
-            WHEN sc.ClassCode LIKE '12.LAT.AP%' AND sc.FileType = 'LEARN' THEN 'AS Level'  
-            WHEN sc.ClassCode LIKE '13.LAT.AP%' AND sc.FileType = 'LEARN' THEN 'A Level'  
-            ELSE 'Unknown'  
-           END,  
-      SyllabusCode AS CIESyllabusCode, RANK() OVER (PARTITION BY sc.ClassCode ORDER BY sc.Fileyear DESC, sc.fileSemester DESC) AS RankingClassCode,  
-      'Past Student Classes' AS SourceName  
-      ,BoardStudiesType AS BoardStudiesType --Added by m.kannangara on 20-April-2018  
-      ,sc.ClassDescription + ' (' + sc.ClassCode + ')' AS 'SubjectClass' --Added by m.kannangara on 27-June-2018  
-      ,sc.AssessmentCode -- Added by m.kannangara on 18-Sep-2018  
-  
-  
-  FROM stage.Extract_Synergetic_u_DW_vPastStudentClassesAll sc LEFT OUTER JOIN stage.Extract_Synergetic_LearningAreas la ON  la.LearningAreaCode = sc.ClassLearningAreaCode  
-                                  AND la.FileType = sc.FileType  
-                  LEFT OUTER JOIN stage.Extract_Synergetic_uSubjectClassesCIEAttributes cca ON sc.ClassCode = cca.ClassCode  
-                                  AND sc.FileYear = cca.FileYear  
-  WHERE NOT EXISTS ( SELECT * FROM #Transform_dimClass tdc  
-        WHERE sc.ClassCode = tdc.ClassCode ) AND sc.ClassDescription IS NOT NULL  
-  
-  
-  --  Transform Class (Attendance Records)  
-  
-  INSERT  INTO #Transform_dimClass (  FileYear, FileSemester, ClassCode, [Subject], FileType, ClassNormalYearLevel, ClassSubject,   
-           Department, Pathway, QualificationType, CIESyllabusCode, RankingClassCode, SourceName)   
-  SELECT DISTINCT pva.FileYear, pva.FileSemester, pva.ClassCode, 'Unknown' AS 'Subject', pva.FileType,   
-       ClassNormalYearLevel = CASE  
-            WHEN ISNUMERIC(REPLACE(LEFT(pva.ClassCode, 2),'.','') )  = 1 THEN REPLACE(LEFT(pva.ClassCode, 2),'.','')   
-            ELSE -1  
-           END,   
-      pva.ClassCode + ' (Unknown)' AS 'ClassSubject',  
-      Department = CASE   
-          WHEN pva.ClassCode LIKE '12.ELI.AS_' OR pva.ClassCode LIKE '%.ENG.%' THEN 'English'  
-          WHEN pva.ClassCode LIKE '%.PHY.%' THEN  'Physics'  
-          WHEN pva.ClassCode LIKE '%.CHE.%' THEN 'Chemistry'  
-          WHEN pva.ClassCode LIKE '%.ACC.%' OR  pva.ClassCode LIKE '%.BUS.%' OR  pva.ClassCode LIKE '%.FIN_' THEN  'Business Studies'  
-          WHEN pva.ClassCode LIKE '%.ECO%.%' OR pva.ClassCode LIKE '%.ECO_'  THEN  'Economics'  
-          WHEN pva.ClassCode LIKE '%.SCI.%' THEN  'Science'  
-          WHEN pva.ClassCode LIKE '%.MAT%.%' OR  pva.ClassCode LIKE '%.MAC.%' OR  pva.ClassCode LIKE '%.MAS.%' OR pva.ClassCode LIKE '%.MAT_' THEN  'Mathematics'  
-          WHEN pva.ClassCode LIKE '%.AEN.%' or pva.ClassCode LIKE '%.FDE.%' or pva.ClassCode LIKE '%.ICT.%' OR pva.ClassCode LIKE '%.PDE%.%'   
-            OR  pva.ClassCode LIKE '%.ADE_.%' OR pva.ClassCode LIKE '%.DEI.%' OR  pva.ClassCode LIKE '%.DTE.%' THEN 'Technology'  
-          WHEN pva.ClassCode LIKE '%.GEO.%' THEN  'Geography'  
-          WHEN pva.ClassCode LIKE '%.DRM.%' THEN  'Drama'  
-          WHEN pva.ClassCode = '10.CHI' OR pva.ClassCode LIKE '%.JAP' OR pva.ClassCode LIKE '%.LAT.%' OR pva.ClassCode LIKE '%.LAT_' OR pva.ClassCode LIKE '10.FRE_' OR pva.ClassCode LIKE '%.FRE.%' OR pva.ClassCode LIKE '%.FRE.%' OR pva.ClassCode LIKE '%.
-MAO.%' OR pva.ClassCode LIKE '%.SPN.%' THEN  'Languages'  
-          WHEN ( pva.ClassCode LIKE '%.GRA.%' OR pva.ClassCode LIKE '%.DES.%' OR  pva.ClassCode LIKE '%.PAI.%' OR  pva.ClassCode LIKE '%.PHO.%' OR pva.ClassCode LIKE '%.GRA_'  
-            OR pva.ClassCode LIKE '%.ART.%' OR  pva.ClassCode LIKE '%.ART[a-z]%' OR  pva.ClassCode LIKE '%(ART)%' )  THEN  'Visual Art and Design'  
-          WHEN ( pva.ClassCode LIKE '%.BIO.%' OR pva.ClassCode LIKE '%.BIO_.%'  OR pva.ClassCode = '13 BIO.N') THEN 'Biology'  
-          WHEN pva.ClassCode LIKE '%.MES.%' THEN 'Media Studies'  
-          WHEN pva.ClassCode LIKE '%.MUS.%' THEN 'Music'  
-          WHEN pva.ClassCode LIKE '%.POS.%' THEN 'Positive Education'   
-          WHEN pva.ClassCode LIKE '%.PED%' THEN 'Physical Education'  
-          WHEN pva.ClassCode LIKE '%.CLS.%' THEN 'Classical Studies'  
-          WHEN pva.ClassCode LIKE '%.COM.%' OR pva.ClassCode LIKE '%.DLIT.%' THEN 'Computer Science'  
-          WHEN pva.ClassCode LIKE '%.HIS.%' THEN 'History'  
-          WHEN pva.ClassCode LIKE '%.ADE.%' THEN 'Architectural Design'  
-          WHEN pva.ClassCode LIKE '%.HOA.%' THEN 'Art History'  
-          WHEN pva.ClassCode LIKE '%.MUS.%' THEN 'Music'  
-          WHEN pva.ClassCode LIKE '%.SOS.%' THEN 'Social Studies'  
-          WHEN pva.ClassCode LIKE '%.LSP%.%' OR pva.ClassCode LIKE '%.LSP_'  OR pva.ClassCode LIKE '%.LSP%'  THEN 'Learning Support'  
-          WHEN pva.ClassCode LIKE 'FORM_%' THEN 'Form Class'  
-          ELSE 'Unknown'  
-           END,   
-      Pathway = CASE   
-           WHEN (CASE  
-           WHEN CHARINDEX('.', pva.ClassCode) > 0 THEN TRY_CONVERT(INT, LEFT(pva.ClassCode, (CHARINDEX('.', pva.ClassCode)-1)))  
-           ELSE 0  
-           END ) IN ( 9, 10 )  THEN 'Junior'  
-           ELSE 'Other'   
-         END,   
-      QualificationType = 'Unknown',  
-      SyllabusCode AS CIESyllabusCode, RANK() OVER (PARTITION BY pva.ClassCode ORDER BY pva.Fileyear DESC, pva.fileSemester DESC) AS RankingClassCode,  
-      'Student Attendance' AS SourceName  
-     
-  FROM stage.Extract_Synergetic_pvAttendancesAll pva LEFT OUTER JOIN stage.Extract_Synergetic_uSubjectClassesCIEAttributes cca ON pva.ClassCode = cca.ClassCode  
-                                    AND pva.FileYear = cca.FileYear  
-                   
-  WHERE NOT EXISTS ( SELECT * FROM #Transform_dimClass tdc  
-        WHERE pva.ClassCode = tdc.ClassCode  )   
-    AND pva.ClassCode IS NOT NULL  
-  
-  --  Additional CIE Syllabus mappings  
-  
-  UPDATE tdc  
-  SET  CIESyllabusCode = SyllabusOptionCode, Pathway = ISNULL( Pathway, 'CIE')  
-  FROM ( SELECT DISTINCT FileYear, ClassCode, SyllabusOptionCode   
-     FROM stage.Extract_Synergetic_UVCIE ) x INNER JOIN #Transform_dimClass tdc ON x.FileYear = tdc.FileYear  
-                          AND x.ClassCode = tdc.ClassCode  
-  WHERE CIESyllabusCode IS NULL               
-  
-  
-  
-  
-  --  Transform  
-  
-  INSERT INTO  stage.Transform_dimClass ( ClassCode, FileType, [Subject], NormalYearLevel, ClassSubject, Department, Pathway, QualificationType, CIESyllabusCode,  
-                DETL_ProcessLogID, DETL_PackageLogID,   
-             DETL_DataFlowLogID, DETL_LastTouchedBy, DETL_Processed, BoardStudiesType, SubjectClass, AssessmentCode, MergedSubject) --Added BoardStudiesType by m.kannangara on 20-April-2018 -- Added SubjectClass by m.kannangara on 27-June-2018 -- Added b
-y m.kannangara on 18-Sep-2018  
-  
-  SELECT ClassCode, FileType, [Subject], ClassNormalYearLevel, ClassSubject, Department, Pathway, QualificationType, CIESyllabusCode,  
-    @DETL_ProcessLogID, @DETL_PackageLogID, @DETL_DataFlowLogID, SourceName, 0, BoardStudiesType, SubjectClass, AssessmentCode --Added BoardStudiesType by m.kannangara on 20-April-2018 -- Added SubjectClass by m.kannangara on 27-June-2018 -- Added by m.ka
-nnangara on 18-Sep-2018  
-  
-    , CASE  WHEN [Subject] IN ('A Level History', 'A Level History (International)', 'A Level History (European)') THEN 'A Level History'  
-      WHEN [Subject] IN ('A Level Mathematics', 'A Level Mathematics with Mechanics') THEN 'A Level Mathematics'  
-      WHEN [Subject] IN ('AS History','AS History (New Zealand)', 'AS History (Modern European)', 'AS History  (Paper 1 - Modern European)') THEN 'AS History'  
-      WHEN [Subject] IN ('A Level Design & Technology', 'A Level Design and Technology') THEN 'A Level Design & Technology'  
-      WHEN [Subject] IN ('AS Biology', 'AS Biology (2 year)', 'AS Biology (2nd year)') THEN 'AS Biology'  
-      WHEN [Subject] IN ('AS Business Studies', 'AS Business') THEN 'AS Business Studies'  
-      WHEN [Subject] IN ('AS Chemistry (2 year)', 'AS Chemistry (2nd year)', 'AS Chemistry') THEN 'AS Chemistry'  
-      WHEN [Subject] IN ('AS Chemistry (2 year)', 'AS Chemistry') THEN 'AS Chemistry'  
-  
-     ELSE [Subject]  
-       
-     END AS MergedSubject  
-  
-  FROM  
-  (  
-  
-   SELECT TOP 100 PERCENT ClassCode, [Subject], FileType, ClassNormalYearLevel, ClassSubject, Department, Pathway, QualificationType, CIESyllabusCode, SourceName, BoardStudiesType, SubjectClass, AssessmentCode --Added BoardStudiesType by m.kannangara on 2
-0-April-2018 -- Added SubjectClass by m.kannangara on 27-June-2018 -- Added by m.kannangara on 18-Sep-2018  
-   FROM #Transform_dimClass c LEFT OUTER JOIN dds.vDimFileTerm dft ON c.FileYear = dft.Year AND c.FileSemester = dft.Term  
-        
-   WHERE RankingClassCode = 1  
-     AND ClassCode <> ''  
-   ORDER BY ClassCode,fileyear, RankingClassCode, FileSemester  
-  
-   ) x  
-  
-  --  Set Qualifcation type for junior classes to junior   
-  
-  UPDATE stage.Transform_dimClass  
-  SET  QualificationType = 'Junior'  
-  WHERE QualificationType = 'Unknown'  
-       AND Pathway = 'Junior'  
-  
-  --  Update missing Syllabus codes, Pathway for CIE classes from manual data table  
-    
-  UPDATE tdc  
-  SET  CIESyllabusCode = ciea.SyllabusCode, Pathway = 'CIE', QualificationType = CASE   
-                       WHEN ciea.Qualification = 'A2' THEN 'A Level'   
-                       WHEN ciea.Qualification = 'AS' THEN 'AS Level'   
-                       WHEN ciea.Qualification = 'IGCSE' THEN 'IGCSE'  
-                       ELSE 'Unknown'   
-                        END  
-  FROM stage.Transform_dimClass tdc INNER JOIN stage.ref_uSubjectClassesCIEAttributes ciea ON tdc.ClassCode = ciea.ClassCode  
-                            AND ciea.SyllabusCode IS NOT NULL  
-  WHERE CIESyllabusCode IS NULL  
-  
-  UPDATE tdc  
-  SET  CIESyllabusCode = ciea.SyllabusCode, Pathway = 'CIE'  
-  FROM stage.Transform_dimClass tdc INNER JOIN stage.ref_uSubjectClassesCIEAttributes ciea ON SUBSTRING(tdc.ClassCode, 1, LEN(tdc.ClassCode) - CHARINDEX('.',REVERSE(tdc.ClassCode)))  
-                          = SUBSTRING(ciea.ClassCode, 1, LEN(ciea.ClassCode) - CHARINDEX('.',REVERSE(ciea.ClassCode)))                          AND CASE  
-                            WHEN tdc.QualificationType ='A Level' THEN 'A2'  
-                            WHEN tdc.QualificationType ='AS Level' THEN 'AS'  
-                            WHEN tdc.QualificationType ='AS Level' THEN 'AS'  
-                            WHEN tdc.QualificationType = 'IGCSE' THEN 'IGCSE'  
-                            END = Qualification  
-  
-  WHERE tdc.CIESyllabusCode IS NULL  
-    AND QualificationType IN ( 'AS Level','A Level','IGCSE')   
-  
-      
-  UPDATE tdc  
-  SET  Pathway = 'CIE'  
-  FROM stage.Transform_dimClass tdc   
-  WHERE Pathway = 'Other'  
-    AND QualificationType IN ( 'AS Level','A Level','IGCSE')   
-  
-  
-  
-  --Update Alt Subject (Class Description)--  
-     
-   CREATE TABLE #AltSubject (ClassCode VARCHAR(15), Subject VARCHAR(100))  
-  
-   INSERT INTO #AltSubject  
-   SELECT ClassCode, MIN(Subject) AS [Subject]  
-   FROM #Transform_dimClass  
-   --WHERE ClassCode = '10.MAT.MAR'  
-   GROUP BY ClassCode  
-  
-   UPDATE   stage.Transform_dimClass  
-   SET      AltSubject = asb.[Subject]  
-  
-   FROM     stage.Transform_dimClass INNER JOIN  
-                     [#AltSubject] AS asb ON stage.Transform_dimClass.ClassCode = asb.ClassCode     
-     
-  
-   
-  END TRY  
-  
-  BEGIN CATCH  
-  
- --  Raise error message  
-  
- SET  @ErrorMsg  = ERROR_MESSAGE();  
-  
- THROW 51000, @ErrorMsg, 1;  
-  
-  END CATCH  
-  
-  
-  
+USE [KCDW]
+GO
+
+/****** Object:  StoredProcedure [stage].[spTransform_dimClass]    Script Date: 6/08/2025 8:53:42 AM ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+
+
+
+CREATE PROCEDURE [stage].[spTransform_dimClass] @DETL_ProcessLogID INT, @DETL_PackageLogID INT, @DETL_DataFlowLogID INT, @DETL_LastTouchedBY VARCHAR(100)
+AS
+
+
+/**********************************************************************************************************************
+
+Author: Tim Foote
+Date: 12/04/2017
+Version: 1.0
+Description: This proc does a load from extract to transform, applying some business logic.
+
+Test Execution:
+exec [stage].[spTransform_dimClass] 1,1,1,'Test'
+
+Changes: 
+Author: m.kannangara
+Date: 20/04/2018
+Version: 1.1
+Description: Added BoardStudiesType into stage.Transform_dimClass as a new column
+
+Changes: 
+Author: m.kannangara
+Date: 27/06/2018
+Version: 1.2
+Description: Added SubjectClass into stage.Transform_dimClass as a new column
+
+***********************************************************************************************************************/
+
+SET NOCOUNT ON
+
+DECLARE @ErrorMsg VARCHAR(MAX)
+
+	BEGIN TRY
+
+ 		--		Temp tables
+
+		CREATE TABLE #Transform_dimClass (	FileYear INT, FileSemester INT, ClassCode VARCHAR(20) NULL, FileType VARCHAR(5) NULL, [Subject] VARCHAR(100) NULL, ClassNormalYearLevel SMALLINT NULL,
+											ClassSubject VARCHAR(255) NULL, Department VARCHAR(50) NOT NULL, Pathway VARCHAR(50) NOT NULL,
+											QualificationType VARCHAR(50) NOT NULL, CIESyllabusCode VARCHAR(50) NULL, RankingClassCode INT NULL, SourceName VARCHAR(255), BoardStudiesType VARCHAR(20), SubjectClass VARCHAR(255) NULL, AssessmentCode VARCHAR(15))  --Added BoardStudiesType by m.kannangara on 20-April-2018 -- Added SubjectClass by m.kannangara on 27-June-2018 -- Added AssessmentCode by m.kannangara on 18-Sep-2018
+	
+		--		Clear stage table
+
+		TRUNCATE TABLE stage.Transform_dimClass
+							   
+		--		Add supporting indexes
+
+
+
+		--		Transform Class (Current Students)
+
+		INSERT  INTO #Transform_dimClass ( 	FileYear, FileSemester, ClassCode, [Subject], FileType, ClassNormalYearLevel, ClassSubject, 
+											Department, Pathway, QualificationType, CIESyllabusCode, RankingClassCode, SourceName, BoardStudiesType, SubjectClass, AssessmentCode) --Added BoardStudiesType by m.kannangara on 20-April-2018 -- Added SubjectClass by m.kannangara on 27-June-2018 -- Added AssessmentCode by m.kannangara on 18-Sep-2018
+		SELECT	DISTINCT sc.FileYear, sc.FileSemester, sc.ClassCode, sc.ClassDescription AS 'Subject', sc.FileType, 
+						 ClassNormalYearLevel = CASE
+											 WHEN ClassNormalYearLevel IS NULL AND ISNUMERIC(REPLACE(LEFT(sc.ClassCode, 2),'.','') )  = 1 THEN REPLACE(LEFT(sc.ClassCode, 2),'.','') 
+											 ELSE ClassNormalYearLevel 
+											END , 
+						sc.ClassCode + ' (' + sc.ClassDescription  + ')' AS 'ClassSubject',
+						Department = CASE 
+										WHEN ( sc.ClassCode LIKE '12.ELI.AS_' OR sc.ClassCode LIKE '%.ENG.%' OR la.[Description] = 'English Language' OR sc.ClassDescription IN ( 'AS English Language' )) AND sc.FileType = 'LEARN' THEN 'English'
+										WHEN ( sc.ClassCode LIKE '%.PHY.%' OR sc.ClassDescription  IN ( 'AS Physics','AS Physics (2nd year)', 'AS Physics (2 year)', 'A Level Physics', 'AS Physics  (2nd year)') ) AND sc.FileType = 'LEARN'  THEN  'Physics'
+										WHEN ( sc.ClassCode LIKE '%.CHE.%' OR sc.ClassDescription  IN ( 'AS Chemistry (2nd year)', 'AS Chemistry (2 year)')) AND sc.FileType = 'LEARN'  THEN 'Chemistry'
+										WHEN ( sc.ClassCode LIKE '%.ACC.%' OR  sc.ClassCode LIKE '%.BUS.%' OR  sc.ClassCode LIKE '%.FIN_' OR la.[Description] = 'Business Studies') AND sc.FileType = 'LEARN' THEN  'Business Studies'
+										WHEN ( sc.ClassCode LIKE '%.ECO%.%' OR sc.ClassCode LIKE '%.ECO_' ) AND sc.FileType = 'LEARN' THEN  'Economics'
+										WHEN ( sc.ClassCode LIKE '%.SCI.%' OR la.[Description] = 'Science' OR sc.ClassDescription = 'Science' ) AND sc.FileType = 'LEARN' THEN  'Science'
+										WHEN ( sc.ClassCode LIKE '%.MAT%.%' OR  sc.ClassCode LIKE '%.MAC.%' OR  sc.ClassCode LIKE '%.MAS.%' OR sc.ClassCode LIKE '%.MAT_' OR la.[Description] = 'Mathematics' ) AND sc.FileType = 'LEARN' THEN  'Mathematics'
+										WHEN ( sc.ClassCode LIKE '%.AEN.%' or sc.ClassCode LIKE '%.FDE.%' or sc.ClassCode LIKE '%.ICT.%' OR sc.ClassCode LIKE '%.PDE%.%' 
+												OR  sc.ClassCode LIKE '%.ADE_.%' OR sc.ClassCode LIKE '%.DEI.%' OR  sc.ClassCode LIKE '%.DTE.%' OR la.[Description] = 'Technology' or sc.ClassDescription IN ( 'NCEA L3 Technology', 'Technology') ) AND sc.FileType = 'LEARN' THEN 'Technology'
+										WHEN ( sc.ClassCode LIKE '%.GEO.%' OR sc.ClassDescription = 'NCEA L2 Geography' ) AND sc.FileType = 'LEARN'  THEN  'Geography'
+										WHEN sc.ClassCode LIKE '%.DRM.%' AND sc.FileType = 'LEARN'  THEN  'Drama'
+										WHEN sc.ClassCode = '10.CHI' OR sc.ClassCode LIKE '%.JAP' OR sc.ClassCode LIKE '%.LAT.%' OR sc.ClassCode LIKE '%.LAT_' OR sc.ClassCode LIKE '10.FRE_' OR sc.ClassCode LIKE '%.FRE.%' OR sc.ClassCode LIKE '%.FRE.%' OR sc.ClassCode LIKE '%.MAO.%' OR sc.ClassCode LIKE '%.SPN.%' AND sc.FileType = 'LEARN' THEN  'Languages'
+										WHEN sc.ClassDescription  IN ( 'AS Mandarin', 'IGCSE Chinese','Chinese Special', 'AS Spanish', 'NCEA L3 Chinese', 'Extended French','Extended Latin','Extended Te Reo Maori','Extended Spanish','Extended French (Term 2 Exam)', 'AS French', 'NCEA Level 2 Japanese', 'NCEA L1 Chinese', 'NCEA Level 3 German','IGCSE Japanese', 'IGCSE French', 'IGCSE Mandarin', 'NCEA L1 Latin', 'IGCSE Spanish', 'AS Latin', 'French', 'IGCSE Latin', 'Latin', 'Spanish', 'Te Reo Maori', 'Mandarin', 'Maori Studies', 'Te Ao Maori', 'NCEA L2 Te Reo Rangatira') AND sc.FileType = 'LEARN' THEN  'Languages'
+										WHEN ( sc.ClassCode LIKE '%.GRA.%' OR sc.ClassCode LIKE '%.DES.%' OR  sc.ClassCode LIKE '%.PAI.%' OR  sc.ClassCode LIKE '%.PHO.%' OR sc.ClassCode LIKE '%.GRA_'
+												OR sc.ClassCode LIKE '%.ART.%' OR  sc.ClassCode LIKE '%.ART[a-z]%' OR  sc.ClassCode LIKE '%(ART)%'  OR sc.ClassDescription IN ('NCEA L2 Art', 'Graphics','ART','NCEA L3 Sculpture', 'NCEA L3 Painting') ) 
+												AND sc.FileType = 'LEARN' THEN  'Visual Art and Design'
+										WHEN ( sc.ClassCode LIKE '%.BIO.%' OR sc.ClassCode LIKE '%.BIO_.%'  OR sc.ClassCode = '13 BIO.N') AND sc.FileType = 'LEARN' THEN 'Biology'
+										WHEN sc.ClassCode LIKE '%.MES.%' AND sc.FileType = 'LEARN' THEN 'Media Studies'
+										WHEN ( sc.ClassCode LIKE '%.MUS.%' OR sc.ClassDescription  = 'Music')  AND sc.FileType = 'LEARN' THEN 'Music'
+										WHEN ( sc.ClassCode LIKE '%.POS.%' OR sc.ClassCode LIKE '%.POSe%'  OR la.[Description] = 'Positive Education' ) AND sc.FileType = 'LEARN' THEN 'Positive Education' 
+										WHEN sc.ClassCode LIKE '%.PED%' AND sc.FileType = 'LEARN' THEN 'Physical Education'
+										WHEN sc.ClassCode LIKE '%.CLS.%'AND sc.FileType = 'LEARN' THEN 'Classical Studies'
+										WHEN ( sc.ClassCode LIKE '%.COM.%' OR sc.ClassCode LIKE '%.DLIT.%' OR la.[Description] = 'Computer Studies' OR sc.ClassDescription IN (  'IGCSE Information Technology' )) AND sc.FileType = 'LEARN' THEN 'Computer Science'
+										WHEN ( sc.ClassCode LIKE '%.HIS.%' OR la.[Description] = 'History' or sc.ClassDescription IN ( 'AS New Zealand History') ) AND sc.FileType = 'LEARN'  THEN 'History'
+										WHEN sc.ClassCode LIKE '%.ADE.%' AND sc.FileType = 'LEARN' THEN 'Architectural Design'
+										WHEN sc.ClassCode LIKE '%.HOA.%' OR sc.ClassDescription IN ( 'AS Art History','NCEA L3 Art History') AND sc.FileType = 'LEARN' THEN 'Art History'
+										WHEN ( sc.ClassCode LIKE '%.MUS.%' OR sc.ClassDescription IN ( 'AS Music')) AND sc.FileType = 'LEARN' THEN 'Music'
+										WHEN ( sc.ClassCode LIKE '%.SOS.%' OR la.[Description] = 'Social Studies') AND sc.FileType = 'LEARN' THEN 'Social Studies'
+										WHEN ( sc.ClassCode LIKE '%.LSP%.%' OR sc.ClassCode LIKE '%.LSP_'  OR sc.ClassCode LIKE '%.LSP%' ) AND sc.FileType = 'LEARN' THEN 'Learning Support'
+										WHEN sc.ClassCode LIKE 'FORM_%' THEN 'Form Class'
+
+										ELSE 'Unknown'
+										 END, 
+						Pathway = CASE 
+									  WHEN (sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN') OR SyllabusCode IS NOT NULL THEN 'CIE'
+									  WHEN (sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN') OR SyllabusCode IS NOT NULL THEN 'CIE'
+									  WHEN ((sc.ClassDescription LIKE 'AS %' OR sc.ClassDescription LIKE 'A Level %' OR sc.ClassDescription LIKE '% - AS Level%' OR sc.ClassDescription LIKE '% - A Level%' OR sc.ClassDescription LIKE '% - towards CIE AS Level%') AND sc.FileType = 'LEARN') THEN 'CIE'
+									  WHEN  ( sc.ClassDescription LIKE 'NCEA L1%' OR sc.ClassDescription LIKE 'NCEA L2%' OR sc.ClassDescription LIKE 'NCEA L3%')  AND sc.FileType = 'LEARN' THEN 'NCEA'
+									  WHEN ISNULL( ClassNormalYearLevel, CASE
+																			WHEN CHARINDEX('.', sc.CLASSCODE) > 0 THEN TRY_CONVERT(INT, LEFT(sc.Classcode, (CHARINDEX('.', sc.Classcode)-1)))
+																			ELSE 0
+																		 END )   IN ( 9, 10 )  AND sc.FileType = 'LEARN' THEN 'Junior'
+									  WHEN ClassNormalYearLevel  IN ( 9, 10, 0 ) THEN 'Junior'
+									  ELSE 'Other' 
+									END, 
+						QualificationType = CASE 
+							  -- ✅ Apply patched NCEA logic ONLY to 2025+ records
+									WHEN sc.FileYear >= 2025 THEN
+										CASE
+											WHEN sc.ClassDescription LIKE '%NCEA Level 1%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 1'
+											WHEN sc.ClassDescription LIKE '%NCEA Level 2%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 2'
+											WHEN sc.ClassDescription LIKE '%NCEA Level 3%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 3'
+											-- CIE patterns for 2025
+											WHEN sc.ClassDescription LIKE '% - A Level%' AND sc.FileType = 'LEARN' THEN 'A Level'
+											WHEN sc.ClassDescription LIKE '% - AS Level%' AND sc.FileType = 'LEARN' THEN 'AS Level'
+											WHEN sc.ClassDescription LIKE '% - towards CIE AS Level%' AND sc.FileType = 'LEARN' THEN 'AS Level'
+											WHEN sc.ClassDescription LIKE 'A Level %' AND sc.FileType = 'LEARN' THEN 'A Level'
+											WHEN sc.ClassDescription LIKE 'AS Level %' AND sc.FileType = 'LEARN' THEN 'AS Level'
+											WHEN sc.ClassDescription LIKE 'IGCSE %' AND sc.FileType = 'LEARN' THEN 'IGCSE'
+											ELSE 'Unknown'
+											END
+
+									-- 🔁 Existing logic (applies to all other years)
+									WHEN sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN' THEN 'IGCSE'
+									WHEN sc.ClassDescription LIKE 'AS %' AND sc.FileType = 'LEARN' THEN 'AS Level'
+									WHEN sc.ClassDescription LIKE 'A Level %' AND sc.FileType = 'LEARN' THEN 'A Level'
+									WHEN sc.ClassDescription LIKE 'Scholarship %' THEN 'Scholarship'
+
+									WHEN sc.ClassDescription LIKE 'NCEA L1%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 1'
+									WHEN sc.ClassDescription LIKE 'NCEA L2%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 2'
+									WHEN sc.ClassDescription LIKE 'NCEA L3%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 3'
+
+									WHEN sc.ClassCode LIKE '12.LAT.AP%' AND sc.FileType = 'LEARN' THEN 'AS Level'
+									WHEN sc.ClassCode LIKE '13.LAT.AP%' AND sc.FileType = 'LEARN' THEN 'A Level'
+									ELSE 'Unknown'
+								END,
+						SyllabusCode AS CIESyllabusCode, RANK() OVER (PARTITION BY sc.ClassCode ORDER BY sc.Fileyear DESC, sc.fileSemester DESC) AS RankingClassCode, 'Current Student Classes' AS SourceName
+						,BoardStudiesType --Added by m.kannangara on 20-April-2018
+						,sc.ClassDescription + ' (' + sc.ClassCode + ')' AS 'SubjectClass' --Added by m.kannangara on 27-June-2018
+						,sc.AssessmentCode -- Added by m.kannangara on 18-Sep-2018
+
+
+		FROM	stage.Extract_Synergetic_uvStudentClassesAll sc LEFT OUTER JOIN stage.Extract_Synergetic_LearningAreas la ON  la.LearningAreaCode = sc.ClassLearningAreaCode
+																															AND la.FileType = sc.FileType
+															LEFT OUTER JOIN stage.Extract_Synergetic_uSubjectClassesCIEAttributes cca ON sc.ClassCode = cca.ClassCode
+																																		AND sc.FileYear = cca.FileYear AND cca.ClassCampus = ''
+
+		--		Transform Class (Past Students)
+
+		INSERT  INTO #Transform_dimClass ( 	FileYear, FileSemester, ClassCode, [Subject], FileType, ClassNormalYearLevel, ClassSubject, 
+											Department, Pathway, QualificationType, CIESyllabusCode, RankingClassCode, SourceName, BoardStudiesType, SubjectClass, AssessmentCode)  --Added BoardStudiesType by m.kannangara on 20-April-2018 -- Added SubjectClass by m.kannangara on 27-June-2018 -- Added AssessmentCode by m.kannangara on 18-Sep-2018
+		SELECT	DISTINCT sc.FileYear, sc.FileSemester, sc.ClassCode, sc.ClassDescription AS 'Subject', sc.FileType, 
+						 ClassNormalYearLevel = CASE
+											 WHEN ClassNormalYearLevel IS NULL AND ISNUMERIC(REPLACE(LEFT(sc.ClassCode, 2),'.','') )  = 1 THEN REPLACE(LEFT(sc.ClassCode, 2),'.','') 
+											 ELSE ClassNormalYearLevel 
+											END , 
+						sc.ClassCode + ' (' + sc.ClassDescription  + ')' AS 'ClassSubject',
+						Department = CASE 
+										WHEN ( sc.ClassCode LIKE '12.ELI.AS_' OR sc.ClassCode LIKE '%.ENG.%' OR la.[Description] = 'English Language' OR sc.ClassDescription IN ( 'AS English Language' )) AND sc.FileType = 'LEARN' THEN 'English'
+										WHEN ( sc.ClassCode LIKE '%.PHY.%' OR sc.ClassDescription  IN ( 'AS Physics','AS Physics (2nd year)', 'AS Physics (2 year)', 'A Level Physics', 'AS Physics  (2nd year)') ) AND sc.FileType = 'LEARN'  THEN  'Physics'
+										WHEN ( sc.ClassCode LIKE '%.CHE.%' OR sc.ClassDescription  IN ( 'AS Chemistry (2nd year)', 'AS Chemistry (2 year)')) AND sc.FileType = 'LEARN'  THEN 'Chemistry'
+										WHEN ( sc.ClassCode LIKE '%.ACC.%' OR  sc.ClassCode LIKE '%.BUS.%' OR  sc.ClassCode LIKE '%.FIN_' OR la.[Description] = 'Business Studies') AND sc.FileType = 'LEARN' THEN  'Business Studies'
+										WHEN ( sc.ClassCode LIKE '%.ECO%.%' OR sc.ClassCode LIKE '%.ECO_' ) AND sc.FileType = 'LEARN' THEN  'Economics'
+										WHEN ( sc.ClassCode LIKE '%.SCI.%' OR la.[Description] = 'Science' OR sc.ClassDescription = 'Science' ) AND sc.FileType = 'LEARN' THEN  'Science'
+										WHEN ( sc.ClassCode LIKE '%.MAT%.%' OR  sc.ClassCode LIKE '%.MAC.%' OR  sc.ClassCode LIKE '%.MAS.%' OR sc.ClassCode LIKE '%.MAT_' OR la.[Description] = 'Mathematics' ) AND sc.FileType = 'LEARN' THEN  'Mathematics'
+										WHEN ( sc.ClassCode LIKE '%.AEN.%' or sc.ClassCode LIKE '%.FDE.%' or sc.ClassCode LIKE '%.ICT.%' OR sc.ClassCode LIKE '%.PDE%.%' 
+												OR  sc.ClassCode LIKE '%.ADE_.%' OR sc.ClassCode LIKE '%.DEI.%' OR  sc.ClassCode LIKE '%.DTE.%' OR la.[Description] = 'Technology' or sc.ClassDescription IN ( 'NCEA L3 Technology', 'Technology') ) AND sc.FileType = 'LEARN' THEN 'Technology'
+										WHEN ( sc.ClassCode LIKE '%.GEO.%' OR sc.ClassDescription = 'NCEA L2 Geography' ) AND sc.FileType = 'LEARN'  THEN  'Geography'
+										WHEN sc.ClassCode LIKE '%.DRM.%' AND sc.FileType = 'LEARN'  THEN  'Drama'
+										WHEN sc.ClassCode = '10.CHI' OR sc.ClassCode LIKE '%.JAP' OR sc.ClassCode LIKE '%.LAT.%' OR sc.ClassCode LIKE '%.LAT_' OR sc.ClassCode LIKE '10.FRE_' OR sc.ClassCode LIKE '%.FRE.%' OR sc.ClassCode LIKE '%.FRE.%' OR sc.ClassCode LIKE '%.MAO.%' OR sc.ClassCode LIKE '%.SPN.%' AND sc.FileType = 'LEARN' THEN  'Languages'
+										WHEN sc.ClassDescription  IN ( 'AS Mandarin', 'IGCSE Chinese','Chinese Special', 'AS Spanish', 'NCEA L3 Chinese', 'Extended French','Extended Latin','Extended Te Reo Maori','Extended Spanish','Extended French (Term 2 Exam)', 'AS French', 'NCEA Level 2 Japanese', 'NCEA L1 Chinese', 'NCEA Level 3 German','IGCSE Japanese', 'IGCSE French', 'IGCSE Mandarin', 'NCEA L1 Latin', 'IGCSE Spanish', 'AS Latin', 'French', 'IGCSE Latin', 'Latin', 'Spanish', 'Te Reo Maori', 'Mandarin') AND sc.FileType = 'LEARN' THEN  'Languages'
+										WHEN ( sc.ClassCode LIKE '%.GRA.%' OR sc.ClassCode LIKE '%.DES.%' OR  sc.ClassCode LIKE '%.PAI.%' OR  sc.ClassCode LIKE '%.PHO.%' OR sc.ClassCode LIKE '%.GRA_'
+												OR sc.ClassCode LIKE '%.ART.%' OR  sc.ClassCode LIKE '%.ART[a-z]%' OR  sc.ClassCode LIKE '%(ART)%'  OR sc.ClassDescription IN ('NCEA L2 Art', 'Graphics','ART','NCEA L3 Sculpture', 'NCEA L3 Painting') ) 
+												AND sc.FileType = 'LEARN' THEN  'Visual Art and Design'
+										WHEN ( sc.ClassCode LIKE '%.BIO.%' OR sc.ClassCode LIKE '%.BIO_.%'  OR sc.ClassCode = '13 BIO.N') AND sc.FileType = 'LEARN' THEN 'Biology'
+										WHEN sc.ClassCode LIKE '%.MES.%' AND sc.FileType = 'LEARN' THEN 'Media Studies'
+										WHEN ( sc.ClassCode LIKE '%.MUS.%' OR sc.ClassDescription  = 'Music')  AND sc.FileType = 'LEARN' THEN 'Music'
+										WHEN ( sc.ClassCode LIKE '%.POS.%'  OR la.[Description] = 'Positive Education' ) AND sc.FileType = 'LEARN' THEN 'Positive Education' 
+										WHEN sc.ClassCode LIKE '%.PED%' AND sc.FileType = 'LEARN' THEN 'Physical Education'
+										WHEN sc.ClassCode LIKE '%.CLS.%'AND sc.FileType = 'LEARN' THEN 'Classical Studies'
+										WHEN ( sc.ClassCode LIKE '%.COM.%' OR sc.ClassCode LIKE '%.DLIT.%' OR la.[Description] = 'Computer Studies' OR sc.ClassDescription IN (  'IGCSE Information Technology' )) AND sc.FileType = 'LEARN' THEN 'Computer Science'
+										WHEN ( sc.ClassCode LIKE '%.HIS.%' OR la.[Description] = 'History' or sc.ClassDescription IN ( 'AS New Zealand History') ) AND sc.FileType = 'LEARN'  THEN 'History'
+										WHEN sc.ClassCode LIKE '%.ADE.%' AND sc.FileType = 'LEARN' THEN 'Architectural Design'
+										WHEN sc.ClassCode LIKE '%.HOA.%' OR sc.ClassDescription IN ( 'AS Art History','NCEA L3 Art History') AND sc.FileType = 'LEARN' THEN 'Art History'
+										WHEN ( sc.ClassCode LIKE '%.MUS.%' OR sc.ClassDescription IN ( 'AS Music')) AND sc.FileType = 'LEARN' THEN 'Music'
+										WHEN ( sc.ClassCode LIKE '%.SOS.%' OR la.[Description] = 'Social Studies') AND sc.FileType = 'LEARN' THEN 'Social Studies'
+										WHEN ( sc.ClassCode LIKE '%.LSP%.%' OR sc.ClassCode LIKE '%.LSP_'  OR sc.ClassCode LIKE '%.LSP%' ) AND sc.FileType = 'LEARN' THEN 'Learning Support'
+										WHEN sc.ClassCode LIKE 'FORM_%' THEN 'Form Class'
+
+										ELSE 'Unknown'
+										 END, 
+						Pathway = CASE 
+									  WHEN (sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN') OR SyllabusCode IS NOT NULL THEN 'CIE'
+									  WHEN (sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN') OR SyllabusCode IS NOT NULL THEN 'CIE'
+									  WHEN (sc.ClassDescription LIKE 'AS %'  OR  sc.ClassDescription LIKE 'A Level %' AND sc.FileType = 'LEARN') THEN 'CIE'
+									  WHEN  ( sc.ClassDescription LIKE 'NCEA L1%' OR sc.ClassDescription LIKE 'NCEA L2%' OR sc.ClassDescription LIKE 'NCEA L3%')  AND sc.FileType = 'LEARN' THEN 'NCEA'
+									  WHEN ISNULL( ClassNormalYearLevel, CASE
+																			WHEN CHARINDEX('.', sc.CLASSCODE) > 0 THEN TRY_CONVERT(INT, LEFT(sc.Classcode, (CHARINDEX('.', sc.Classcode)-1)))
+																			ELSE 0
+																		 END )   IN ( 9, 10 )  AND sc.FileType = 'LEARN' THEN 'Junior'
+									  WHEN ClassNormalYearLevel  IN ( 9, 10, 0 ) THEN 'Junior'
+									  ELSE 'Other' 
+									END, 
+						QualificationType = CASE 
+												WHEN sc.ClassDescription LIKE 'IGCSE%' AND sc.FileType = 'LEARN' THEN 'IGCSE'
+												WHEN sc.ClassDescription LIKE 'AS %' AND sc.FileType = 'LEARN' THEN 'AS Level'
+												WHEN sc.ClassDescription LIKE 'A Level %' AND sc.FileType = 'LEARN' THEN 'A Level'
+												WHEN sc.ClassDescription LIKE 'Scholarship %' THEN 'Scholarship'
+												WHEN sc.ClassDescription LIKE 'NCEA L1%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 1'
+												WHEN sc.ClassDescription LIKE 'NCEA L2%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 2'
+												WHEN sc.ClassDescription LIKE 'NCEA L3%' AND sc.FileType = 'LEARN' THEN 'NCEA Level 3'
+												WHEN sc.ClassCode LIKE '12.LAT.AP%' AND sc.FileType = 'LEARN' THEN 'AS Level'
+												WHEN sc.ClassCode LIKE '13.LAT.AP%' AND sc.FileType = 'LEARN' THEN 'A Level'
+												ELSE 'Unknown'
+											END,
+						SyllabusCode AS CIESyllabusCode, RANK() OVER (PARTITION BY sc.ClassCode ORDER BY sc.Fileyear DESC, sc.fileSemester DESC) AS RankingClassCode,
+						'Past Student Classes' AS SourceName
+						,BoardStudiesType AS BoardStudiesType --Added by m.kannangara on 20-April-2018
+						,sc.ClassDescription + ' (' + sc.ClassCode + ')' AS 'SubjectClass' --Added by m.kannangara on 27-June-2018
+						,sc.AssessmentCode -- Added by m.kannangara on 18-Sep-2018
+
+
+		FROM	stage.Extract_Synergetic_u_DW_vPastStudentClassesAll sc LEFT OUTER JOIN stage.Extract_Synergetic_LearningAreas la ON  la.LearningAreaCode = sc.ClassLearningAreaCode
+																																		AND la.FileType = sc.FileType
+																		LEFT OUTER JOIN stage.Extract_Synergetic_uSubjectClassesCIEAttributes cca ON sc.ClassCode = cca.ClassCode
+																																		AND sc.FileYear = cca.FileYear
+		WHERE	NOT EXISTS ( SELECT * FROM #Transform_dimClass tdc
+								WHERE sc.ClassCode = tdc.ClassCode ) AND sc.ClassDescription IS NOT NULL
+
+
+		--		Transform Class (Attendance Records)
+
+		INSERT  INTO #Transform_dimClass ( 	FileYear, FileSemester, ClassCode, [Subject], FileType, ClassNormalYearLevel, ClassSubject, 
+											Department, Pathway, QualificationType, CIESyllabusCode, RankingClassCode, SourceName) 
+		SELECT	DISTINCT pva.FileYear, pva.FileSemester, pva.ClassCode, 'Unknown' AS 'Subject', pva.FileType, 
+						 ClassNormalYearLevel = CASE
+											 WHEN ISNUMERIC(REPLACE(LEFT(pva.ClassCode, 2),'.','') )  = 1 THEN REPLACE(LEFT(pva.ClassCode, 2),'.','') 
+											 ELSE -1
+											END, 
+						pva.ClassCode + ' (Unknown)' AS 'ClassSubject',
+						Department = CASE 
+										WHEN pva.ClassCode LIKE '12.ELI.AS_' OR pva.ClassCode LIKE '%.ENG.%' THEN 'English'
+										WHEN pva.ClassCode LIKE '%.PHY.%' THEN  'Physics'
+										WHEN pva.ClassCode LIKE '%.CHE.%' THEN 'Chemistry'
+										WHEN pva.ClassCode LIKE '%.ACC.%' OR  pva.ClassCode LIKE '%.BUS.%' OR  pva.ClassCode LIKE '%.FIN_' THEN  'Business Studies'
+										WHEN pva.ClassCode LIKE '%.ECO%.%' OR pva.ClassCode LIKE '%.ECO_'  THEN  'Economics'
+										WHEN pva.ClassCode LIKE '%.SCI.%' THEN  'Science'
+										WHEN pva.ClassCode LIKE '%.MAT%.%' OR  pva.ClassCode LIKE '%.MAC.%' OR  pva.ClassCode LIKE '%.MAS.%' OR pva.ClassCode LIKE '%.MAT_' THEN  'Mathematics'
+										WHEN pva.ClassCode LIKE '%.AEN.%' or pva.ClassCode LIKE '%.FDE.%' or pva.ClassCode LIKE '%.ICT.%' OR pva.ClassCode LIKE '%.PDE%.%' 
+												OR  pva.ClassCode LIKE '%.ADE_.%' OR pva.ClassCode LIKE '%.DEI.%' OR  pva.ClassCode LIKE '%.DTE.%' THEN 'Technology'
+										WHEN pva.ClassCode LIKE '%.GEO.%' THEN  'Geography'
+										WHEN pva.ClassCode LIKE '%.DRM.%' THEN  'Drama'
+										WHEN pva.ClassCode = '10.CHI' OR pva.ClassCode LIKE '%.JAP' OR pva.ClassCode LIKE '%.LAT.%' OR pva.ClassCode LIKE '%.LAT_' OR pva.ClassCode LIKE '10.FRE_' OR pva.ClassCode LIKE '%.FRE.%' OR pva.ClassCode LIKE '%.FRE.%' OR pva.ClassCode LIKE '%.MAO.%' OR pva.ClassCode LIKE '%.SPN.%' THEN  'Languages'
+										WHEN ( pva.ClassCode LIKE '%.GRA.%' OR pva.ClassCode LIKE '%.DES.%' OR  pva.ClassCode LIKE '%.PAI.%' OR  pva.ClassCode LIKE '%.PHO.%' OR pva.ClassCode LIKE '%.GRA_'
+												OR pva.ClassCode LIKE '%.ART.%' OR  pva.ClassCode LIKE '%.ART[a-z]%' OR  pva.ClassCode LIKE '%(ART)%' )  THEN  'Visual Art and Design'
+										WHEN ( pva.ClassCode LIKE '%.BIO.%' OR pva.ClassCode LIKE '%.BIO_.%'  OR pva.ClassCode = '13 BIO.N') THEN 'Biology'
+										WHEN pva.ClassCode LIKE '%.MES.%' THEN 'Media Studies'
+										WHEN pva.ClassCode LIKE '%.MUS.%' THEN 'Music'
+										WHEN pva.ClassCode LIKE '%.POS.%' THEN 'Positive Education' 
+										WHEN pva.ClassCode LIKE '%.PED%' THEN 'Physical Education'
+										WHEN pva.ClassCode LIKE '%.CLS.%' THEN 'Classical Studies'
+										WHEN pva.ClassCode LIKE '%.COM.%' OR pva.ClassCode LIKE '%.DLIT.%' THEN 'Computer Science'
+										WHEN pva.ClassCode LIKE '%.HIS.%' THEN 'History'
+										WHEN pva.ClassCode LIKE '%.ADE.%' THEN 'Architectural Design'
+										WHEN pva.ClassCode LIKE '%.HOA.%' THEN 'Art History'
+										WHEN pva.ClassCode LIKE '%.MUS.%' THEN 'Music'
+										WHEN pva.ClassCode LIKE '%.SOS.%' THEN 'Social Studies'
+										WHEN pva.ClassCode LIKE '%.LSP%.%' OR pva.ClassCode LIKE '%.LSP_'  OR pva.ClassCode LIKE '%.LSP%'  THEN 'Learning Support'
+										WHEN pva.ClassCode LIKE 'FORM_%' THEN 'Form Class'
+										ELSE 'Unknown'
+										 END, 
+						Pathway = CASE 
+									  WHEN (CASE
+											WHEN CHARINDEX('.', pva.ClassCode) > 0 THEN TRY_CONVERT(INT, LEFT(pva.ClassCode, (CHARINDEX('.', pva.ClassCode)-1)))
+											ELSE 0
+											END ) IN ( 9, 10 )  THEN 'Junior'
+									  ELSE 'Other' 
+									END, 
+						QualificationType = 'Unknown',
+						SyllabusCode AS CIESyllabusCode, RANK() OVER (PARTITION BY pva.ClassCode ORDER BY pva.Fileyear DESC, pva.fileSemester DESC) AS RankingClassCode,
+						'Student Attendance' AS SourceName
+			
+		FROM	stage.Extract_Synergetic_pvAttendancesAll pva LEFT OUTER JOIN stage.Extract_Synergetic_uSubjectClassesCIEAttributes cca ON pva.ClassCode = cca.ClassCode
+																																	   AND pva.FileYear = cca.FileYear
+															  
+		WHERE	NOT EXISTS ( SELECT * FROM #Transform_dimClass tdc
+							 WHERE pva.ClassCode = tdc.ClassCode 	) 
+				AND pva.ClassCode IS NOT NULL
+
+		--		Additional CIE Syllabus mappings
+
+		UPDATE	tdc
+		SET		CIESyllabusCode = SyllabusOptionCode, Pathway = ISNULL( Pathway, 'CIE')
+		FROM	(	SELECT	DISTINCT FileYear, ClassCode, SyllabusOptionCode 
+					FROM	stage.Extract_Synergetic_UVCIE ) x INNER JOIN #Transform_dimClass tdc ON x.FileYear = tdc.FileYear
+																									 AND x.ClassCode = tdc.ClassCode
+		WHERE	CIESyllabusCode IS NULL												 
+
+
+
+
+		--		Transform
+
+		INSERT	INTO  stage.Transform_dimClass ( ClassCode, FileType, [Subject], NormalYearLevel, ClassSubject, Department, Pathway, QualificationType, CIESyllabusCode,
+											     DETL_ProcessLogID, DETL_PackageLogID, 
+												 DETL_DataFlowLogID, DETL_LastTouchedBy, DETL_Processed, BoardStudiesType, SubjectClass, AssessmentCode, MergedSubject) --Added BoardStudiesType by m.kannangara on 20-April-2018 -- Added SubjectClass by m.kannangara on 27-June-2018 -- Added by m.kannangara on 18-Sep-2018
+
+		SELECT	ClassCode, FileType, [Subject], ClassNormalYearLevel, ClassSubject, Department, Pathway, QualificationType, CIESyllabusCode,
+				@DETL_ProcessLogID, @DETL_PackageLogID, @DETL_DataFlowLogID, SourceName, 0, BoardStudiesType, SubjectClass, AssessmentCode --Added BoardStudiesType by m.kannangara on 20-April-2018 -- Added SubjectClass by m.kannangara on 27-June-2018 -- Added by m.kannangara on 18-Sep-2018
+
+				, CASE  WHEN [Subject] IN ('A Level History', 'A Level History (International)', 'A Level History (European)') THEN 'A Level History'
+						WHEN [Subject] IN ('A Level Mathematics', 'A Level Mathematics with Mechanics') THEN 'A Level Mathematics'
+						WHEN [Subject] IN ('AS History','AS History (New Zealand)', 'AS History (Modern European)', 'AS History  (Paper 1 - Modern European)') THEN 'AS History'
+						WHEN [Subject] IN ('A Level Design & Technology', 'A Level Design and Technology') THEN 'A Level Design & Technology'
+						WHEN [Subject] IN ('AS Biology', 'AS Biology (2 year)', 'AS Biology (2nd year)') THEN 'AS Biology'
+						WHEN [Subject] IN ('AS Business Studies', 'AS Business') THEN 'AS Business Studies'
+						WHEN [Subject] IN ('AS Chemistry (2 year)', 'AS Chemistry (2nd year)', 'AS Chemistry') THEN 'AS Chemistry'
+						WHEN [Subject] IN ('AS Chemistry (2 year)', 'AS Chemistry') THEN 'AS Chemistry'
+
+					ELSE [Subject]
+					
+					END AS MergedSubject
+
+		FROM
+		(
+
+			SELECT	TOP 100 PERCENT ClassCode, [Subject], FileType, ClassNormalYearLevel, ClassSubject, Department, Pathway, QualificationType, CIESyllabusCode, SourceName, BoardStudiesType, SubjectClass, AssessmentCode --Added BoardStudiesType by m.kannangara on 20-April-2018 -- Added SubjectClass by m.kannangara on 27-June-2018 -- Added by m.kannangara on 18-Sep-2018
+			FROM	#Transform_dimClass c LEFT OUTER JOIN dds.vDimFileTerm dft ON c.FileYear = dft.Year AND c.FileSemester = dft.Term
+						
+			WHERE	RankingClassCode = 1
+					AND ClassCode <> ''
+			ORDER	BY ClassCode,fileyear, RankingClassCode, FileSemester
+
+		 ) x
+
+		--		Set Qualifcation type for junior classes to junior 
+
+		UPDATE	stage.Transform_dimClass
+		SET		QualificationType = 'Junior'
+		WHERE	QualificationType = 'Unknown'
+			    AND Pathway = 'Junior'
+
+		--		Update missing Syllabus codes, Pathway for CIE classes from manual data table
+		
+		UPDATE	tdc
+		SET		CIESyllabusCode = ciea.SyllabusCode, Pathway = 'CIE', QualificationType = CASE	
+																							WHEN ciea.Qualification = 'A2' THEN 'A Level' 
+																							WHEN ciea.Qualification = 'AS' THEN 'AS Level' 
+																							WHEN ciea.Qualification = 'IGCSE' THEN 'IGCSE'
+																							ELSE 'Unknown' 
+																						  END
+		FROM	stage.Transform_dimClass tdc INNER JOIN stage.ref_uSubjectClassesCIEAttributes ciea ON tdc.ClassCode = ciea.ClassCode
+																									   AND ciea.SyllabusCode IS NOT NULL
+		WHERE	CIESyllabusCode IS NULL
+
+		UPDATE	tdc
+		SET		CIESyllabusCode = ciea.SyllabusCode, Pathway = 'CIE'
+		FROM	stage.Transform_dimClass tdc INNER JOIN stage.ref_uSubjectClassesCIEAttributes ciea ON SUBSTRING(tdc.ClassCode, 1, LEN(tdc.ClassCode) - CHARINDEX('.',REVERSE(tdc.ClassCode)))
+																										= SUBSTRING(ciea.ClassCode, 1, LEN(ciea.ClassCode) - CHARINDEX('.',REVERSE(ciea.ClassCode)))																										AND CASE
+																												WHEN tdc.QualificationType ='A Level' THEN 'A2'
+																												WHEN tdc.QualificationType ='AS Level' THEN 'AS'
+																												WHEN tdc.QualificationType ='AS Level' THEN 'AS'
+																												WHEN tdc.QualificationType = 'IGCSE' THEN 'IGCSE'
+																											 END = Qualification
+
+		WHERE	tdc.CIESyllabusCode IS NULL
+				AND QualificationType IN ( 'AS Level','A Level','IGCSE') 
+
+				
+		UPDATE	tdc
+		SET		Pathway = 'CIE'
+		FROM	stage.Transform_dimClass tdc 
+		WHERE	Pathway = 'Other'
+				AND QualificationType IN ( 'AS Level','A Level','IGCSE') 
+
+
+
+		--Update Alt Subject (Class Description)--
+			
+			CREATE TABLE #AltSubject (ClassCode VARCHAR(15), Subject VARCHAR(100))
+
+			INSERT INTO #AltSubject
+			SELECT ClassCode, MIN(Subject) AS [Subject]
+			FROM #Transform_dimClass
+			--WHERE ClassCode = '10.MAT.MAR'
+			GROUP BY ClassCode
+
+			UPDATE   stage.Transform_dimClass
+			SET      AltSubject = asb.[Subject]
+
+			FROM     stage.Transform_dimClass INNER JOIN
+                     [#AltSubject] AS asb ON stage.Transform_dimClass.ClassCode = asb.ClassCode   
+			
+
+	
+  END TRY
+
+  BEGIN CATCH
+
+	--		Raise error message
+
+	SET  @ErrorMsg  = ERROR_MESSAGE();
+
+	THROW 51000, @ErrorMsg, 1;
+
+  END CATCH
+
+
+
+GO
+
+
+
